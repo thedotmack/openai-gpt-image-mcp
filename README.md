@@ -1,4 +1,4 @@
-# <img src="https://cdn.jsdelivr.net/gh/openai/openai-cookbook/images/openai.png" alt="OpenAI Logo" width="36" style="vertical-align:middle;"/> openai-gpt-image-mcp
+# openai-gpt-image-mcp
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@modelcontextprotocol/sdk"><img src="https://img.shields.io/npm/v/@modelcontextprotocol/sdk?label=MCP%20SDK&color=blue" alt="MCP SDK"></a>
