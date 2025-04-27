@@ -39,46 +39,18 @@ yarn build
 
 ## 🔑 Configuration
 
-```sh
-export OPENAI_API_KEY=sk-...
-```
+Add to Claude Desktop or VSCode (including Cursor/Windsurf) config:
 
----
-
-## 🛠️ Usage Examples
-
-### Claude Desktop
-
-```yaml
-create-image:
-  prompt: "A photorealistic portrait of a cat wearing sunglasses"
-  size: "1024x1024"
-  output: "file_output"
-  file_output: "/Users/youruser/Desktop/cool_cat.png"
-
-edit-image:
-  image: "/Users/youruser/Desktop/cool_cat.png"
-  prompt: "Make the cat's sunglasses neon pink"
-  output: "file_output"
-  file_output: "/Users/youruser/Desktop/cool_cat_edited.png"
-```
-
----
-
-### VSCode / Cursor / Windsurf
-
-```yaml
-create-image:
-  prompt: "A futuristic city skyline at sunset, ultra detailed"
-  size: "1024x1024"
-  output: "file_output"
-  file_output: "/absolute/path/to/future_city.png"
-
-edit-image:
-  image: "/absolute/path/to/future_city.png"
-  prompt: "Add flying cars in the sky"
-  output: "file_output"
-  file_output: "/absolute/path/to/future_city_flyingcars.png"
+```json
+{
+  "mcpServers": {
+    "openai-gpt-image-mcp": {
+      "command": "node",
+      "args": ["/absolute/path/to/dist/index.js"],
+      "env": { "OPENAI_API_KEY": "sk-..." }
+    }
+  }
+}
 ```
 
 ---
@@ -115,7 +87,14 @@ MIT
 
 ---
 
+## 📚 References
+
+- [OpenAI Images API Documentation](https://platform.openai.com/docs/api-reference/images)
+
+---
+
 ## 🙏 Credits
 
 - Built with [@modelcontextprotocol/sdk](https://www.npmjs.com/package/@modelcontextprotocol/sdk)
 - Uses [openai](https://www.npmjs.com/package/openai) Node.js SDK 
+- Built by [SureScale.ai](https://surescale.ai)
