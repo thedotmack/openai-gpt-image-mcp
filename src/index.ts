@@ -28,7 +28,15 @@ import { OpenAI } from "openai";
     quality: z.enum(["auto", "high", "medium", "low"]).optional(),
     size: z.enum(["1024x1024", "1536x1024", "1024x1536", "auto"]).optional(),
     user: z.string().optional(),
-  });
+    output: z.enum(["base64", "file_output"]).default("base64"),
+    file_output: z.string().optional().refine(
+      (val) => !val || val.startsWith("/"),
+      { message: "file_output must be an absolute path" }
+    ).describe("Absolute path to save the image file, including the desired file extension (e.g., /path/to/image.png). If multiple images are generated (n > 1), an index will be appended (e.g., /path/to/image_1.png)."),
+  }).refine(
+    (data) => data.output !== "file_output" || (typeof data.file_output === "string" && data.file_output.startsWith("/")),
+    { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
+  );
 
   server.tool(
     "helloWorld",
@@ -38,11 +46,11 @@ import { OpenAI } from "openai";
     })
   );
 
+  // Use ._def.schema.shape to get the raw shape for server.tool due to Zod refinements
   server.tool(
     "create-image",
-    createImageSchema.shape,
-    async (input) => {
-      console.error("OPENAI_API_KEY at runtime:", process.env.OPENAI_API_KEY);
+    (createImageSchema as any)._def.schema.shape,
+    async (args, _extra) => {
       const openai = new OpenAI();
       // Only allow gpt-image-1
       const {
@@ -56,7 +64,9 @@ import { OpenAI } from "openai";
         quality,
         size,
         user,
-      } = input;
+        output = "base64",
+        file_output,
+      } = args;
 
       // Enforce: if background is 'transparent', output_format must be 'png' or 'webp'
       if (background === "transparent" && output_format && !["png", "webp"].includes(output_format)) {
@@ -86,13 +96,44 @@ import { OpenAI } from "openai";
       const result = await openai.images.generate(imageParams);
 
       // gpt-image-1 always returns base64 images in data[].b64_json
-      return {
-        content: (result.data ?? []).map((img: any) => ({
-          type: "image",
-          data: img.b64_json,
-          mimeType: output_format === "jpeg" ? "image/jpeg" : output_format === "webp" ? "image/webp" : "image/png",
-        })),
-      };
+      const images = (result.data ?? []).map((img: any) => ({
+        b64: img.b64_json,
+        mimeType: output_format === "jpeg" ? "image/jpeg" : output_format === "webp" ? "image/webp" : "image/png",
+        ext: output_format === "jpeg" ? "jpg" : output_format === "webp" ? "webp" : "png",
+      }));
+
+      if (output === "file_output") {
+        const fs = await import("fs/promises");
+        const path = await import("path");
+        // If multiple images, append index to filename
+        const basePath = file_output!;
+        const responses = [];
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i];
+          let filePath = basePath;
+          if (images.length > 1) {
+            const parsed = path.parse(basePath);
+            filePath = path.join(parsed.dir, `${parsed.name}_${i + 1}.${img.ext ?? "png"}`);
+          } else {
+            // Ensure correct extension
+            const parsed = path.parse(basePath);
+            filePath = path.join(parsed.dir, `${parsed.name}.${img.ext ?? "png"}`);
+          }
+          await fs.writeFile(filePath, Buffer.from(img.b64, "base64"));
+          // Use the 'resource' type expected by the MCP SDK
+          responses.push({ type: "resource", resource: { uri: `file://${filePath}`, mimeType: img.mimeType } });
+        }
+        return { content: responses };
+      } else {
+        // Default: base64
+        return {
+          content: images.map((img) => ({
+            type: "image",
+            data: img.b64,
+            mimeType: img.mimeType,
+          })),
+        };
+      }
     }
   );
 
