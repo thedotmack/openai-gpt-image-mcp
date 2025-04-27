@@ -147,10 +147,11 @@ import path from "path";
     { message: "Must be an absolute path or a base64-encoded string (optionally as a data URL)" }
   ).describe("Absolute path to an image file (png, jpg, webp < 25MB) or a base64-encoded image string.");
 
-  const editImageSchema = z.object({
-    image: imageInputSchema.describe("Absolute image path or base64 string to edit."),
+  // Base schema without refinement for server.tool signature
+  const editImageBaseSchema = z.object({
+    image: z.string().describe("Absolute image path or base64 string to edit."),
     prompt: z.string().max(32000).describe("A text description of the desired edit. Max 32000 chars."),
-    mask: imageInputSchema.optional().describe("Optional absolute path or base64 string for a mask image (png < 4MB, same dimensions as the first image). Fully transparent areas indicate where to edit."),
+    mask: z.string().optional().describe("Optional absolute path or base64 string for a mask image (png < 4MB, same dimensions as the first image). Fully transparent areas indicate where to edit."),
     model: z.literal("gpt-image-1").default("gpt-image-1"),
     n: z.number().int().min(1).max(10).optional().describe("Number of images to generate (1-10)."),
     quality: z.enum(["auto", "high", "medium", "low"]).optional().describe("Quality (high, medium, low) - only for gpt-image-1."),
@@ -159,7 +160,10 @@ import path from "path";
     output: z.enum(["base64", "file_output"]).default("base64").describe("Output format: base64 or file path."),
     file_output: z.string().refine(absolutePathCheck, { message: "Path must be absolute" }).optional()
                    .describe("Absolute path to save the output image file, including the desired file extension (e.g., /path/to/image.png). If n > 1, an index is appended."),
-  }).refine(
+  });
+
+  // Full schema with refinement for validation inside the handler
+  const editImageSchema = editImageBaseSchema.refine(
       (data) => data.output !== "file_output" || (typeof data.file_output === "string" && data.file_output.startsWith("/")),
       { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
   );
@@ -167,8 +171,19 @@ import path from "path";
   // Edit Image Tool (gpt-image-1 only)
   server.tool(
     "edit-image",
-    (editImageSchema as any)._def.schema.shape,
+    editImageBaseSchema.shape, // <-- Use the base schema shape here
     async (args, _extra) => {
+      // Validate arguments using the full schema with refinements
+      const validatedArgs = editImageSchema.parse(args);
+
+      // Explicitly validate image and mask inputs here
+      if (!absolutePathCheck(validatedArgs.image) && !base64Check(validatedArgs.image)) {
+        throw new Error("Invalid 'image' input: Must be an absolute path or a base64-encoded string.");
+      }
+      if (validatedArgs.mask && !absolutePathCheck(validatedArgs.mask) && !base64Check(validatedArgs.mask)) {
+        throw new Error("Invalid 'mask' input: Must be an absolute path or a base64-encoded string.");
+      }
+
       const openai = new OpenAI();
       const {
         image: imageInput,
@@ -181,7 +196,7 @@ import path from "path";
         user,
         output = "base64",
         file_output,
-      } = args;
+      } = validatedArgs; // <-- Use validatedArgs here
 
       // Helper to convert input (path or base64) to toFile
       async function inputToFile(input: string, idx = 0) {
