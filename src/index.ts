@@ -40,14 +40,6 @@ import path from "path";
     { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
   );
 
-  server.tool(
-    "helloWorld",
-    {},
-    async () => ({
-      content: [{ type: "text", text: "Hello, world!" }]
-    })
-  );
-
   // Use ._def.schema.shape to get the raw shape for server.tool due to Zod refinements
   server.tool(
     "create-image",
