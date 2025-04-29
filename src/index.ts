@@ -59,8 +59,9 @@ import path from "path";
         size,
         user,
         output = "base64",
-        file_output,
+        file_output: file_outputRaw,
       } = args;
+      const file_output: string | undefined = file_outputRaw;
 
       // Enforce: if background is 'transparent', output_format must be 'png' or 'webp'
       if (background === "transparent" && output_format && !["png", "webp"].includes(output_format)) {
@@ -96,11 +97,26 @@ import path from "path";
         ext: output_format === "jpeg" ? "jpg" : output_format === "webp" ? "webp" : "png",
       }));
 
-      if (output === "file_output") {
+      // Auto-switch to file_output if total base64 size exceeds 1MB
+      const MAX_RESPONSE_SIZE = 1048576; // 1MB
+      const totalBase64Size = images.reduce((sum, img) => sum + Buffer.byteLength(img.b64, "base64"), 0);
+      let effectiveOutput = output;
+      let effectiveFileOutput = file_output;
+      if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
+        effectiveOutput = "file_output";
+        if (!file_output) {
+          // Use /tmp or MCP_HF_WORK_DIR if set
+          const tmpDir = process.env.MCP_HF_WORK_DIR || "/tmp";
+          const unique = Date.now();
+          effectiveFileOutput = path.join(tmpDir, `openai_image_${unique}.${images[0]?.ext ?? "png"}`);
+        }
+      }
+
+      if (effectiveOutput === "file_output") {
         const fs = await import("fs/promises");
         const path = await import("path");
         // If multiple images, append index to filename
-        const basePath = file_output!;
+        const basePath = effectiveFileOutput!;
         const responses = [];
         for (let i = 0; i < images.length; i++) {
           const img = images[i];
@@ -114,7 +130,6 @@ import path from "path";
             filePath = path.join(parsed.dir, `${parsed.name}.${img.ext ?? "png"}`);
           }
           await fs.writeFile(filePath, Buffer.from(img.b64, "base64"));
-          // Workaround: Return file path as text due to SDK validation issues with 'resource' type for URIs
           responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
         }
         return { content: responses };
@@ -187,8 +202,9 @@ import path from "path";
         size,
         user,
         output = "base64",
-        file_output,
+        file_output: file_outputRaw,
       } = validatedArgs; // <-- Use validatedArgs here
+      const file_output: string | undefined = file_outputRaw;
 
       // Helper to convert input (path or base64) to toFile
       async function inputToFile(input: string, idx = 0) {
@@ -248,12 +264,27 @@ import path from "path";
         ext: "png",
       }));
 
-      if (output === "file_output") {
+      // Auto-switch to file_output if total base64 size exceeds 1MB
+      const MAX_RESPONSE_SIZE = 1048576; // 1MB
+      const totalBase64Size = images.reduce((sum, img) => sum + Buffer.byteLength(img.b64, "base64"), 0);
+      let effectiveOutput = output;
+      let effectiveFileOutput = file_output;
+      if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
+        effectiveOutput = "file_output";
         if (!file_output) {
+          // Use /tmp or MCP_HF_WORK_DIR if set
+          const tmpDir = process.env.MCP_HF_WORK_DIR || "/tmp";
+          const unique = Date.now();
+          effectiveFileOutput = path.join(tmpDir, `openai_image_edit_${unique}.png`);
+        }
+      }
+
+      if (effectiveOutput === "file_output") {
+        if (!effectiveFileOutput) {
            throw new Error("file_output path is required when output is 'file_output'");
         }
         // Use fs/promises and path (already imported)
-        const basePath = file_output!;
+        const basePath = effectiveFileOutput!;
         const responses = [];
         for (let i = 0; i < images.length; i++) {
           const img = images[i];
