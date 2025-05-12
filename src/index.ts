@@ -1,5 +1,5 @@
 // Suppress all Node.js warnings (including deprecation)
-(process as any).emitWarning = () => {};
+(process as any).emitWarning = () => { };
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -32,11 +32,26 @@ import path from "path";
     user: z.string().optional(),
     output: z.enum(["base64", "file_output"]).default("base64"),
     file_output: z.string().optional().refine(
-      (val) => !val || val.startsWith("/"),
+      (val) => {
+        if (!val) return true;
+        // Check for Unix/Linux/macOS absolute paths
+        if (val.startsWith("/")) return true;
+        // Check for Windows absolute paths (C:/, D:\, etc.)
+        if (/^[a-zA-Z]:[/\\]/.test(val)) return true;
+        return false;
+      },
       { message: "file_output must be an absolute path" }
     ).describe("Absolute path to save the image file, including the desired file extension (e.g., /path/to/image.png). If multiple images are generated (n > 1), an index will be appended (e.g., /path/to/image_1.png)."),
   }).refine(
-    (data) => data.output !== "file_output" || (typeof data.file_output === "string" && data.file_output.startsWith("/")),
+    (data) => {
+      if (data.output !== "file_output") return true;
+      if (typeof data.file_output !== "string") return false;
+      // Check for Unix/Linux/macOS absolute paths
+      if (data.file_output.startsWith("/")) return true;
+      // Check for Windows absolute paths (C:/, D:\, etc.)
+      if (/^[a-zA-Z]:[/\\]/.test(data.file_output)) return true;
+      return false;
+    },
     { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
   );
 
@@ -147,7 +162,14 @@ import path from "path";
   );
 
   // Zod schema for edit-image tool input (gpt-image-1 only)
-  const absolutePathCheck = (val: string | undefined) => !val || val.startsWith("/");
+  const absolutePathCheck = (val: string | undefined) => {
+    if (!val) return true;
+    // Check for Unix/Linux/macOS absolute paths
+    if (val.startsWith("/")) return true;
+    // Check for Windows absolute paths (C:/, D:\, etc.)
+    if (/^[a-zA-Z]:[/\\]/.test(val)) return true;
+    return false;
+  };
   const base64Check = (val: string | undefined) => !!val && (/^([A-Za-z0-9+/=\r\n]+)$/.test(val) || val.startsWith("data:image/"));
   const imageInputSchema = z.string().refine(
     (val) => absolutePathCheck(val) || base64Check(val),
@@ -166,13 +188,17 @@ import path from "path";
     user: z.string().optional().describe("Optional user identifier for OpenAI monitoring."),
     output: z.enum(["base64", "file_output"]).default("base64").describe("Output format: base64 or file path."),
     file_output: z.string().refine(absolutePathCheck, { message: "Path must be absolute" }).optional()
-                   .describe("Absolute path to save the output image file, including the desired file extension (e.g., /path/to/image.png). If n > 1, an index is appended."),
+      .describe("Absolute path to save the output image file, including the desired file extension (e.g., /path/to/image.png). If n > 1, an index is appended."),
   });
 
   // Full schema with refinement for validation inside the handler
   const editImageSchema = editImageBaseSchema.refine(
-      (data) => data.output !== "file_output" || (typeof data.file_output === "string" && data.file_output.startsWith("/")),
-      { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
+    (data) => {
+      if (data.output !== "file_output") return true;
+      if (typeof data.file_output !== "string") return false;
+      return absolutePathCheck(data.file_output);
+    },
+    { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
   );
 
   // Edit Image Tool (gpt-image-1 only)
@@ -281,7 +307,7 @@ import path from "path";
 
       if (effectiveOutput === "file_output") {
         if (!effectiveFileOutput) {
-           throw new Error("file_output path is required when output is 'file_output'");
+          throw new Error("file_output path is required when output is 'file_output'");
         }
         // Use fs/promises and path (already imported)
         const basePath = effectiveFileOutput!;
@@ -295,10 +321,10 @@ import path from "path";
             const ext = parsed.ext || `.${img.ext}`;
             filePath = path.join(parsed.dir, `${parsed.name}_${i + 1}${ext}`);
           } else {
-             // Ensure the extension from the path is used, or default to .png
-             const parsed = path.parse(basePath);
-             const ext = parsed.ext || `.${img.ext}`;
-             filePath = path.join(parsed.dir, `${parsed.name}${ext}`);
+            // Ensure the extension from the path is used, or default to .png
+            const parsed = path.parse(basePath);
+            const ext = parsed.ext || `.${img.ext}`;
+            filePath = path.join(parsed.dir, `${parsed.name}${ext}`);
           }
           await fs.promises.writeFile(filePath, Buffer.from(img.b64, "base64"));
           // Workaround: Return file path as text
