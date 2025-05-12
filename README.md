@@ -82,6 +82,8 @@ MIT
 - Make sure your `OPENAI_API_KEY` is valid and has image API access.
 - You must have a [verified OpenAI organization](https://platform.openai.com/account/organization). After verifying, it can take 15–20 minutes for image API access to activate.
 - File paths must be absolute.
+  - **Unix/macOS/Linux**: Starting with `/` (e.g., `/path/to/image.png`)
+  - **Windows**: Drive letter followed by `:` (e.g., `C:/path/to/image.png` or `C:\path\to\image.png`)
 - For file output, ensure the directory is writable.
 - If you see errors about file types, check your image file extensions and formats.
 
