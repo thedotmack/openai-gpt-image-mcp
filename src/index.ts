@@ -66,20 +66,18 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
   // Zod schema for create-image tool input
   const createImageSchema = z.object({
     prompt: z.string().max(32000),
-    reference_image: z.string().optional().refine(
-      (val) => !val || absolutePathCheck(val) || base64Check(val),
-      { message: "Must be an absolute path or a base64-encoded string (optionally as a data URL)" }
-    ).describe("Optional reference image (absolute path to image file or base64-encoded string) to guide the generation."),
-    background: z.enum(["transparent", "opaque", "auto"]).optional(),
-    model: z.literal("gpt-image-1").default("gpt-image-1"),
-    moderation: z.enum(["auto", "low"]).optional(),
-    n: z.number().int().min(1).max(10).optional(),
-    output_compression: z.number().int().min(0).max(100).optional(),
-    output_format: z.enum(["png", "jpeg", "webp"]).optional(),
-    quality: z.enum(["auto", "high", "medium", "low"]).optional(),
-    size: z.enum(["1024x1024", "1536x1024", "1024x1536", "auto"]).optional(),
-    user: z.string().optional(),
-    output: z.enum(["base64", "file_output"]).default("base64"),
+    background: z.enum(["transparent", "opaque", "auto"]).optional().describe("Background transparency (gpt-image-1 only). Use 'transparent' for transparent background, 'opaque' for solid, 'auto' for automatic."),
+    model: z.enum(["dall-e-2", "dall-e-3", "gpt-image-1"]).default("gpt-image-1").describe("Model to use for image generation."),
+    moderation: z.enum(["auto", "low"]).optional().describe("Content moderation level (gpt-image-1 only)."),
+    n: z.number().int().min(1).max(10).optional().describe("Number of images to generate (1-10). For dall-e-3, only n=1 is supported."),
+    output_compression: z.number().int().min(0).max(100).optional().describe("Compression level 0-100% (gpt-image-1 with webp/jpeg only)."),
+    output_format: z.enum(["png", "jpeg", "webp"]).optional().describe("Output format (gpt-image-1 only)."),
+    quality: z.enum(["auto", "high", "medium", "low", "standard", "hd"]).optional().describe("Image quality. gpt-image-1: auto/high/medium/low. dall-e-3: standard/hd. dall-e-2: standard only."),
+    response_format: z.enum(["url", "b64_json"]).optional().describe("Response format (dall-e-2/dall-e-3 only). gpt-image-1 always returns b64_json."),
+    size: z.enum(["auto", "1024x1024", "1536x1024", "1024x1536", "256x256", "512x512", "1792x1024", "1024x1792"]).optional().describe("Image size. gpt-image-1: auto/1024x1024/1536x1024/1024x1536. dall-e-2: 256x256/512x512/1024x1024. dall-e-3: 1024x1024/1792x1024/1024x1792."),
+    style: z.enum(["vivid", "natural"]).optional().describe("Image style (dall-e-3 only). 'vivid' for dramatic, 'natural' for natural."),
+    user: z.string().optional().describe("End-user identifier for monitoring."),
+    output: z.enum(["base64", "file_output"]).default("base64").describe("Output method: return base64 data or save to file."),
     file_output: z.string().optional().refine(
       (val) => {
         if (!val) return true;
@@ -102,6 +100,47 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       return false;
     },
     { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
+  ).refine(
+    (data) => {
+      // Model-specific parameter validation
+      const { model = "gpt-image-1" } = data;
+      
+      // dall-e-3 specific validations
+      if (model === "dall-e-3") {
+        if (data.n && data.n > 1) return false; // dall-e-3 only supports n=1
+        if (data.background) return false; // background not supported
+        if (data.moderation) return false; // moderation not supported
+        if (data.output_compression) return false; // output_compression not supported
+        if (data.output_format) return false; // output_format not supported
+        if (data.quality && !["standard", "hd"].includes(data.quality)) return false;
+        if (data.size && !["1024x1024", "1792x1024", "1024x1792"].includes(data.size)) return false;
+      }
+      
+      // dall-e-2 specific validations
+      if (model === "dall-e-2") {
+        if (data.background) return false; // background not supported
+        if (data.moderation) return false; // moderation not supported
+        if (data.output_compression) return false; // output_compression not supported
+        if (data.output_format) return false; // output_format not supported
+        if (data.quality && data.quality !== "standard") return false;
+        if (data.size && !["256x256", "512x512", "1024x1024"].includes(data.size)) return false;
+        if (data.style) return false; // style not supported
+      }
+      
+      // gpt-image-1 specific validations
+      if (model === "gpt-image-1") {
+        if (data.response_format) return false; // response_format not supported (always b64_json)
+        if (data.style) return false; // style not supported
+        if (data.quality && !["auto", "high", "medium", "low"].includes(data.quality)) return false;
+        if (data.size && !["auto", "1024x1024", "1536x1024", "1024x1536"].includes(data.size)) return false;
+      }
+      
+      return true;
+    },
+    { 
+      message: "Invalid parameter combination for the selected model. Check model-specific parameter restrictions.",
+      path: ["model"]
+    }
   );
 
   // Use ._def.schema.shape to get the raw shape for server.tool due to Zod refinements
@@ -112,10 +151,8 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       // If AZURE_OPENAI_API_KEY is defined, use the AzureOpenAI class
       const openai = process.env.AZURE_OPENAI_API_KEY ? new AzureOpenAI() : new OpenAI();
 
-      // Only allow gpt-image-1
       const {
         prompt,
-        reference_image,
         background,
         model = "gpt-image-1",
         moderation,
@@ -123,85 +160,92 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
         output_compression,
         output_format,
         quality,
+        response_format,
         size,
+        style,
         user,
         output = "base64",
         file_output: file_outputRaw,
       } = args;
       const file_output: string | undefined = file_outputRaw;
 
-      // Helper to convert input (path or base64) to toFile
-      async function inputToFile(input: string, idx = 0) {
-        if (absolutePathCheck(input)) {
-          // File path: infer mime type from extension
-          const ext = input.split('.').pop()?.toLowerCase();
-          let mime = "image/png";
-          if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
-          else if (ext === "webp") mime = "image/webp";
-          else if (ext === "png") mime = "image/png";
-          // else default to png
-          return await toFile(fs.createReadStream(input), undefined, { type: mime });
-        } else {
-          // Base64 or data URL
-          let base64 = input;
-          let mime = "image/png";
-          if (input.startsWith("data:image/")) {
-            // data URL
-            const match = input.match(/^data:(image\/\w+);base64,(.*)$/);
-            if (match) {
-              mime = match[1];
-              base64 = match[2];
-            }
-          }
-          const buffer = Buffer.from(base64, "base64");
-          return await toFile(buffer, `input_${idx}.${mime.split("/")[1] || "png"}`, { type: mime });
-        }
-      }
-
       // Enforce: if background is 'transparent', output_format must be 'png' or 'webp'
       if (background === "transparent" && output_format && !["png", "webp"].includes(output_format)) {
         throw new Error("If background is 'transparent', output_format must be 'png' or 'webp'");
       }
 
-      // Prepare reference image if provided
-      let referenceImageFile = undefined;
-      if (reference_image) {
-        referenceImageFile = await inputToFile(reference_image, 0);
-      }
-
-      // Only include output_compression if output_format is webp or jpeg
+      // Build image parameters based on model
       const imageParams: any = {
         prompt,
         model,
-        ...(referenceImageFile ? { reference_image: referenceImageFile } : {}),
-        ...(background ? { background } : {}),
-        ...(moderation ? { moderation } : {}),
-        ...(n ? { n } : {}),
-        ...(output_format ? { output_format } : {}),
-        ...(quality ? { quality } : {}),
-        ...(size ? { size } : {}),
-        ...(user ? { user } : {}),
       };
-      if (
-        typeof output_compression !== "undefined" &&
-        output_format &&
-        ["webp", "jpeg"].includes(output_format)
-      ) {
-        imageParams.output_compression = output_compression;
+
+      // Add model-specific parameters
+      if (model === "gpt-image-1") {
+        if (background) imageParams.background = background;
+        if (moderation) imageParams.moderation = moderation;
+        if (output_format) imageParams.output_format = output_format;
+        if (typeof output_compression !== "undefined" && output_format && ["webp", "jpeg"].includes(output_format)) {
+          imageParams.output_compression = output_compression;
+        }
+        if (quality) imageParams.quality = quality;
+        if (size) imageParams.size = size;
+      } else if (model === "dall-e-3") {
+        if (quality) imageParams.quality = quality;
+        if (response_format) imageParams.response_format = response_format;
+        if (size) imageParams.size = size;
+        if (style) imageParams.style = style;
+      } else if (model === "dall-e-2") {
+        if (quality) imageParams.quality = quality;
+        if (response_format) imageParams.response_format = response_format;
+        if (size) imageParams.size = size;
       }
+
+      // Common parameters
+      if (n) imageParams.n = n;
+      if (user) imageParams.user = user;
 
       const result = await openai.images.generate(imageParams);
 
-      // gpt-image-1 always returns base64 images in data[].b64_json
-      const images = (result.data ?? []).map((img: any) => ({
-        b64: img.b64_json,
-        mimeType: output_format === "jpeg" ? "image/jpeg" : output_format === "webp" ? "image/webp" : "image/png",
-        ext: output_format === "jpeg" ? "jpg" : output_format === "webp" ? "webp" : "png",
-      }));
+      // Handle different response formats based on model
+      let images: Array<{ b64?: string; url?: string; mimeType: string; ext: string }> = [];
+      
+      if (model === "gpt-image-1") {
+        // gpt-image-1 always returns base64 images in data[].b64_json
+        images = (result.data ?? []).map((img: any) => ({
+          b64: img.b64_json,
+          mimeType: output_format === "jpeg" ? "image/jpeg" : output_format === "webp" ? "image/webp" : "image/png",
+          ext: output_format === "jpeg" ? "jpg" : output_format === "webp" ? "webp" : "png",
+        }));
+      } else {
+        // dall-e-2 and dall-e-3 can return either URLs or base64 depending on response_format
+        images = (result.data ?? []).map((img: any) => ({
+          b64: img.b64_json,
+          url: img.url,
+          mimeType: "image/png", // Default for dall-e models
+          ext: "png",
+        }));
+      }
+
+      // If using URLs (dall-e-2/dall-e-3 with response_format="url"), handle differently
+      if (response_format === "url" && model !== "gpt-image-1") {
+        return {
+          content: images.map((img) => ({
+            type: "text",
+            text: `Generated image URL: ${img.url}`,
+          })),
+        };
+      }
+
+      // For base64 responses, check size and handle file output
+      const base64Images = images.filter(img => img.b64);
+      if (base64Images.length === 0) {
+        throw new Error("No base64 image data received from the API");
+      }
 
       // Auto-switch to file_output if total base64 size exceeds 1MB
       const MAX_RESPONSE_SIZE = 1048576; // 1MB
-      const totalBase64Size = images.reduce((sum, img) => sum + Buffer.byteLength(img.b64, "base64"), 0);
+      const totalBase64Size = base64Images.reduce((sum, img) => sum + Buffer.byteLength(img.b64!, "base64"), 0);
       let effectiveOutput = output;
       let effectiveFileOutput = file_output;
       if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
@@ -210,7 +254,7 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
           // Use /tmp or MCP_HF_WORK_DIR if set
           const tmpDir = process.env.MCP_HF_WORK_DIR || "/tmp";
           const unique = Date.now();
-          effectiveFileOutput = path.join(tmpDir, `openai_image_${unique}.${images[0]?.ext ?? "png"}`);
+          effectiveFileOutput = path.join(tmpDir, `openai_image_${unique}.${base64Images[0]?.ext ?? "png"}`);
         }
       }
 
@@ -220,10 +264,10 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
         // If multiple images, append index to filename
         const basePath = effectiveFileOutput!;
         const responses = [];
-        for (let i = 0; i < images.length; i++) {
-          const img = images[i];
+        for (let i = 0; i < base64Images.length; i++) {
+          const img = base64Images[i];
           let filePath = basePath;
-          if (images.length > 1) {
+          if (base64Images.length > 1) {
             const parsed = path.parse(basePath);
             filePath = path.join(parsed.dir, `${parsed.name}_${i + 1}.${img.ext ?? "png"}`);
           } else {
@@ -231,16 +275,16 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
             const parsed = path.parse(basePath);
             filePath = path.join(parsed.dir, `${parsed.name}.${img.ext ?? "png"}`);
           }
-          await fs.writeFile(filePath, Buffer.from(img.b64, "base64"));
+          await fs.writeFile(filePath, Buffer.from(img.b64!, "base64"));
           responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
         }
         return { content: responses };
       } else {
         // Default: base64
         return {
-          content: images.map((img) => ({
+          content: base64Images.map((img) => ({
             type: "image",
-            data: img.b64,
+            data: img.b64!,
             mimeType: img.mimeType,
           })),
         };
@@ -254,15 +298,19 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
     { message: "Must be an absolute path or a base64-encoded string (optionally as a data URL)" }
   ).describe("Absolute path to an image file (png, jpg, webp < 25MB) or a base64-encoded image string.");
 
-  // Edit Image Tool (gpt-image-1 only)
+  // Edit Image Tool (gpt-image-1 and dall-e-2)
   const editImageBaseSchema = z.object({
-    image: z.string().describe("Absolute image path or base64 string to edit."),
-    prompt: z.string().max(32000).describe("A text description of the desired edit. Max 32000 chars."),
+    image: z.union([
+      z.string().describe("Single image: absolute path or base64 string."),
+      z.array(z.string()).describe("Multiple images: array of absolute paths or base64 strings (gpt-image-1 only).")
+    ]).describe("Image(s) to edit. Single image for dall-e-2, or single/multiple images for gpt-image-1."),
+    prompt: z.string().max(32000).describe("A text description of the desired edit. Max 32000 chars for gpt-image-1, 1000 for dall-e-2."),
     mask: z.string().optional().describe("Optional absolute path or base64 string for a mask image (png < 4MB, same dimensions as the first image). Fully transparent areas indicate where to edit."),
-    model: z.literal("gpt-image-1").default("gpt-image-1"),
+    model: z.enum(["dall-e-2", "gpt-image-1"]).default("gpt-image-1").describe("Model to use for editing."),
     n: z.number().int().min(1).max(10).optional().describe("Number of images to generate (1-10)."),
-    quality: z.enum(["auto", "high", "medium", "low"]).optional().describe("Quality (high, medium, low) - only for gpt-image-1."),
-    size: z.enum(["1024x1024", "1536x1024", "1024x1536", "auto"]).optional().describe("Size of the generated images."),
+    quality: z.enum(["auto", "high", "medium", "low", "standard"]).optional().describe("Quality. gpt-image-1: auto/high/medium/low. dall-e-2: standard only."),
+    response_format: z.enum(["url", "b64_json"]).optional().describe("Response format (dall-e-2 only). gpt-image-1 always returns b64_json."),
+    size: z.enum(["1024x1024", "1536x1024", "1024x1536", "auto", "256x256", "512x512"]).optional().describe("Size. gpt-image-1: auto/1024x1024/1536x1024/1024x1536. dall-e-2: 256x256/512x512/1024x1024."),
     user: z.string().optional().describe("Optional user identifier for OpenAI monitoring."),
     output: z.enum(["base64", "file_output"]).default("base64").describe("Output format: base64 or file path."),
     file_output: z.string().refine(absolutePathCheck, { message: "Path must be absolute" }).optional()
@@ -277,9 +325,40 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       return absolutePathCheck(data.file_output);
     },
     { message: "file_output must be an absolute path when output is 'file_output'", path: ["file_output"] }
+  ).refine(
+    (data) => {
+      // Model-specific validation
+      const { model = "gpt-image-1", image, prompt } = data;
+      
+      if (model === "dall-e-2") {
+        // dall-e-2 only supports single images
+        if (Array.isArray(image)) return false;
+        // dall-e-2 has a shorter prompt limit
+        if (prompt.length > 1000) return false;
+        // dall-e-2 quality validation
+        if (data.quality && data.quality !== "standard") return false;
+        // dall-e-2 size validation
+        if (data.size && !["256x256", "512x512", "1024x1024"].includes(data.size)) return false;
+      }
+      
+      if (model === "gpt-image-1") {
+        // gpt-image-1 doesn't support response_format
+        if (data.response_format) return false;
+        // gpt-image-1 quality validation
+        if (data.quality && !["auto", "high", "medium", "low"].includes(data.quality)) return false;
+        // gpt-image-1 size validation
+        if (data.size && !["auto", "1024x1024", "1536x1024", "1024x1536"].includes(data.size)) return false;
+      }
+      
+      return true;
+    },
+    {
+      message: "Invalid parameter combination for the selected model. Check model-specific parameter restrictions.",
+      path: ["model"]
+    }
   );
 
-  // Edit Image Tool (gpt-image-1 only)
+  // Edit Image Tool (gpt-image-1 and dall-e-2)
   server.tool(
     "edit-image",
     editImageBaseSchema.shape, // <-- Use the base schema shape here
@@ -288,8 +367,11 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       const validatedArgs = editImageSchema.parse(args);
 
       // Explicitly validate image and mask inputs here
-      if (!absolutePathCheck(validatedArgs.image) && !base64Check(validatedArgs.image)) {
-        throw new Error("Invalid 'image' input: Must be an absolute path or a base64-encoded string.");
+      const imageInputs = Array.isArray(validatedArgs.image) ? validatedArgs.image : [validatedArgs.image];
+      for (const img of imageInputs) {
+        if (!absolutePathCheck(img) && !base64Check(img)) {
+          throw new Error("Invalid 'image' input: Must be an absolute path or a base64-encoded string.");
+        }
       }
       if (validatedArgs.mask && !absolutePathCheck(validatedArgs.mask) && !base64Check(validatedArgs.mask)) {
         throw new Error("Invalid 'mask' input: Must be an absolute path or a base64-encoded string.");
@@ -303,6 +385,7 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
         model = "gpt-image-1",
         n,
         quality,
+        response_format,
         size,
         user,
         output = "base64",
@@ -338,39 +421,81 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
         }
       }
 
-      // Prepare image input
-      const imageFile = await inputToFile(imageInput, 0);
+      // Prepare image input(s)
+      let imageFile: any;
+      if (Array.isArray(imageInput)) {
+        // Multiple images (gpt-image-1 only)
+        imageFile = await Promise.all(imageInput.map((img, idx) => inputToFile(img, idx)));
+      } else {
+        // Single image
+        imageFile = await inputToFile(imageInput, 0);
+      }
 
       // Prepare mask input
-      const maskFile = maskInput ? await inputToFile(maskInput, 1) : undefined;
+      const maskFile = maskInput ? await inputToFile(maskInput, 100) : undefined;
 
       // Construct parameters for OpenAI API
       const editParams: any = {
         image: imageFile,
         prompt,
-        model, // Always gpt-image-1
+        model,
         ...(maskFile ? { mask: maskFile } : {}),
         ...(n ? { n } : {}),
-        ...(quality ? { quality } : {}),
-        ...(size ? { size } : {}),
         ...(user ? { user } : {}),
-        // response_format is not applicable for gpt-image-1 (always b64_json)
       };
+
+      // Add model-specific parameters
+      if (model === "gpt-image-1") {
+        if (quality) editParams.quality = quality;
+        if (size) editParams.size = size;
+        // gpt-image-1 always uses b64_json format
+      } else if (model === "dall-e-2") {
+        if (quality) editParams.quality = quality;
+        if (response_format) editParams.response_format = response_format;
+        if (size) editParams.size = size;
+      }
 
       const result = await openai.images.edit(editParams);
 
-      // gpt-image-1 always returns base64 images in data[].b64_json
-      // We need to determine the output mime type and extension based on input/defaults
-      // Since OpenAI doesn't return this for edits, we'll default to png
-      const images = (result.data ?? []).map((img: any) => ({
-        b64: img.b64_json,
-        mimeType: "image/png",
-        ext: "png",
-      }));
+      // Handle different response formats based on model
+      let editedImages: Array<{ b64?: string; url?: string; mimeType: string; ext: string }> = [];
+      
+      if (model === "gpt-image-1") {
+        // gpt-image-1 always returns base64 images in data[].b64_json
+        editedImages = (result.data ?? []).map((img: any) => ({
+          b64: img.b64_json,
+          mimeType: "image/png",
+          ext: "png",
+        }));
+      } else {
+        // dall-e-2 can return either URLs or base64 depending on response_format
+        editedImages = (result.data ?? []).map((img: any) => ({
+          b64: img.b64_json,
+          url: img.url,
+          mimeType: "image/png",
+          ext: "png",
+        }));
+      }
+
+      // If using URLs (dall-e-2 with response_format="url"), handle differently
+      if (response_format === "url" && model === "dall-e-2") {
+        return {
+          content: editedImages.map((img) => ({
+            type: "text",
+            text: `Edited image URL: ${img.url}`,
+          })),
+        };
+      }
+
+      // For base64 responses, check size and handle file output
+      const base64Images = editedImages.filter(img => img.b64);
+      if (base64Images.length === 0) {
+        throw new Error("No base64 image data received from the API");
+      }
 
       // Auto-switch to file_output if total base64 size exceeds 1MB
       const MAX_RESPONSE_SIZE = 1048576; // 1MB
-      const totalBase64Size = images.reduce((sum, img) => sum + Buffer.byteLength(img.b64, "base64"), 0);
+      const totalBase64Size = base64Images.reduce((sum, img) => sum + Buffer.byteLength(img.b64!, "base64"), 0);
       let effectiveOutput = output;
       let effectiveFileOutput = file_output;
       if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
@@ -390,10 +515,10 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
         // Use fs/promises and path (already imported)
         const basePath = effectiveFileOutput!;
         const responses = [];
-        for (let i = 0; i < images.length; i++) {
-          const img = images[i];
+        for (let i = 0; i < base64Images.length; i++) {
+          const img = base64Images[i];
           let filePath = basePath;
-          if (images.length > 1) {
+          if (base64Images.length > 1) {
             const parsed = path.parse(basePath);
             // Append index before the original extension if it exists, otherwise just append index and .png
             const ext = parsed.ext || `.${img.ext}`;
@@ -404,7 +529,7 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
             const ext = parsed.ext || `.${img.ext}`;
             filePath = path.join(parsed.dir, `${parsed.name}${ext}`);
           }
-          await fs.promises.writeFile(filePath, Buffer.from(img.b64, "base64"));
+          await fs.promises.writeFile(filePath, Buffer.from(img.b64!, "base64"));
           // Workaround: Return file path as text
           responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
         }
@@ -412,9 +537,9 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       } else {
         // Default: base64
         return {
-          content: images.map((img) => ({
+          content: base64Images.map((img) => ({
             type: "image",
-            data: img.b64,
+            data: img.b64!,
             mimeType: img.mimeType, // Should be image/png
           })),
         };
