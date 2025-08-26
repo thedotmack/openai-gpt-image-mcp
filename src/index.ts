@@ -52,9 +52,24 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
     }
   });
 
+  // Helper functions for validation
+  const absolutePathCheck = (val: string | undefined) => {
+    if (!val) return true;
+    // Check for Unix/Linux/macOS absolute paths
+    if (val.startsWith("/")) return true;
+    // Check for Windows absolute paths (C:/, D:\, etc.)
+    if (/^[a-zA-Z]:[/\\]/.test(val)) return true;
+    return false;
+  };
+  const base64Check = (val: string | undefined) => !!val && (/^([A-Za-z0-9+/=\r\n]+)$/.test(val) || val.startsWith("data:image/"));
+
   // Zod schema for create-image tool input
   const createImageSchema = z.object({
     prompt: z.string().max(32000),
+    reference_image: z.string().optional().refine(
+      (val) => !val || absolutePathCheck(val) || base64Check(val),
+      { message: "Must be an absolute path or a base64-encoded string (optionally as a data URL)" }
+    ).describe("Optional reference image (absolute path to image file or base64-encoded string) to guide the generation."),
     background: z.enum(["transparent", "opaque", "auto"]).optional(),
     model: z.literal("gpt-image-1").default("gpt-image-1"),
     moderation: z.enum(["auto", "low"]).optional(),
@@ -100,6 +115,7 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       // Only allow gpt-image-1
       const {
         prompt,
+        reference_image,
         background,
         model = "gpt-image-1",
         moderation,
@@ -114,15 +130,50 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       } = args;
       const file_output: string | undefined = file_outputRaw;
 
+      // Helper to convert input (path or base64) to toFile
+      async function inputToFile(input: string, idx = 0) {
+        if (absolutePathCheck(input)) {
+          // File path: infer mime type from extension
+          const ext = input.split('.').pop()?.toLowerCase();
+          let mime = "image/png";
+          if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
+          else if (ext === "webp") mime = "image/webp";
+          else if (ext === "png") mime = "image/png";
+          // else default to png
+          return await toFile(fs.createReadStream(input), undefined, { type: mime });
+        } else {
+          // Base64 or data URL
+          let base64 = input;
+          let mime = "image/png";
+          if (input.startsWith("data:image/")) {
+            // data URL
+            const match = input.match(/^data:(image\/\w+);base64,(.*)$/);
+            if (match) {
+              mime = match[1];
+              base64 = match[2];
+            }
+          }
+          const buffer = Buffer.from(base64, "base64");
+          return await toFile(buffer, `input_${idx}.${mime.split("/")[1] || "png"}`, { type: mime });
+        }
+      }
+
       // Enforce: if background is 'transparent', output_format must be 'png' or 'webp'
       if (background === "transparent" && output_format && !["png", "webp"].includes(output_format)) {
         throw new Error("If background is 'transparent', output_format must be 'png' or 'webp'");
+      }
+
+      // Prepare reference image if provided
+      let referenceImageFile = undefined;
+      if (reference_image) {
+        referenceImageFile = await inputToFile(reference_image, 0);
       }
 
       // Only include output_compression if output_format is webp or jpeg
       const imageParams: any = {
         prompt,
         model,
+        ...(referenceImageFile ? { reference_image: referenceImageFile } : {}),
         ...(background ? { background } : {}),
         ...(moderation ? { moderation } : {}),
         ...(n ? { n } : {}),
@@ -197,22 +248,13 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
     }
   );
 
-  // Zod schema for edit-image tool input (gpt-image-1 only)
-  const absolutePathCheck = (val: string | undefined) => {
-    if (!val) return true;
-    // Check for Unix/Linux/macOS absolute paths
-    if (val.startsWith("/")) return true;
-    // Check for Windows absolute paths (C:/, D:\, etc.)
-    if (/^[a-zA-Z]:[/\\]/.test(val)) return true;
-    return false;
-  };
-  const base64Check = (val: string | undefined) => !!val && (/^([A-Za-z0-9+/=\r\n]+)$/.test(val) || val.startsWith("data:image/"));
+  // Image input schema for reuse
   const imageInputSchema = z.string().refine(
     (val) => absolutePathCheck(val) || base64Check(val),
     { message: "Must be an absolute path or a base64-encoded string (optionally as a data URL)" }
   ).describe("Absolute path to an image file (png, jpg, webp < 25MB) or a base64-encoded image string.");
 
-  // Base schema without refinement for server.tool signature
+  // Edit Image Tool (gpt-image-1 only)
   const editImageBaseSchema = z.object({
     image: z.string().describe("Absolute image path or base64 string to edit."),
     prompt: z.string().max(32000).describe("A text description of the desired edit. Max 32000 chars."),
