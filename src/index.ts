@@ -7,6 +7,7 @@ import { z } from "zod";
 import { OpenAI, AzureOpenAI, toFile } from "openai";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 // Function to load environment variables from a file
 const loadEnvFile = (filePath: string) => {
@@ -29,6 +30,36 @@ const loadEnvFile = (filePath: string) => {
   } catch (error) {
     console.warn(`Warning: Could not read environment file at ${filePath}:`, error);
   }
+};
+
+// Function to get platform-specific default image directory
+const getDefaultImageDirectory = (): string => {
+  const homeDir = os.homedir();
+  let defaultDir: string;
+  
+  switch (process.platform) {
+    case 'win32':
+      // Windows: %USERPROFILE%\Desktop\Generated_Images
+      defaultDir = path.join(homeDir, 'Desktop', 'Generated_Images');
+      break;
+    case 'darwin':
+    case 'linux':
+    default:
+      // macOS and Linux: ~/Desktop/Generated_Images
+      defaultDir = path.join(homeDir, 'Desktop', 'Generated_Images');
+      break;
+  }
+  
+  // Ensure the directory exists
+  try {
+    fs.mkdirSync(defaultDir, { recursive: true });
+  } catch (error) {
+    console.warn(`Warning: Could not create default image directory at ${defaultDir}:`, error);
+    // Fallback to /tmp if directory creation fails
+    return "/tmp";
+  }
+  
+  return defaultDir;
 };
 
 // Parse command line arguments for --env-file
@@ -251,8 +282,8 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
         effectiveOutput = "file_output";
         if (!file_output) {
-          // Use /tmp or MCP_HF_WORK_DIR if set
-          const tmpDir = process.env.MCP_HF_WORK_DIR || "/tmp";
+          // Use default generated images directory or MCP_HF_WORK_DIR if set
+          const tmpDir = process.env.MCP_HF_WORK_DIR || getDefaultImageDirectory();
           const unique = Date.now();
           effectiveFileOutput = path.join(tmpDir, `openai_image_${unique}.${base64Images[0]?.ext ?? "png"}`);
         }
@@ -501,8 +532,8 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
         effectiveOutput = "file_output";
         if (!file_output) {
-          // Use /tmp or MCP_HF_WORK_DIR if set
-          const tmpDir = process.env.MCP_HF_WORK_DIR || "/tmp";
+          // Use default generated images directory or MCP_HF_WORK_DIR if set
+          const tmpDir = process.env.MCP_HF_WORK_DIR || getDefaultImageDirectory();
           const unique = Date.now();
           effectiveFileOutput = path.join(tmpDir, `openai_image_edit_${unique}.png`);
         }
