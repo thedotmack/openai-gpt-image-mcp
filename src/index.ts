@@ -535,11 +535,15 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
       if (output === "base64" && totalBase64Size > MAX_RESPONSE_SIZE) {
         effectiveOutput = "file_output";
         if (!file_output) {
-          // Use default generated images directory or MCP_HF_WORK_DIR if set
+          // Use MCP_HF_WORK_DIR if set (ensure it exists); otherwise use the default images directory
           const tmpDir = process.env.MCP_HF_WORK_DIR || getDefaultImageDirectory();
+          try {
+            fs.mkdirSync(tmpDir, { recursive: true });
+          } catch (e) {
+            console.warn(`Warning: Could not create image output directory at ${tmpDir}:`, e);
+          }
           const unique = Date.now();
           effectiveFileOutput = path.join(tmpDir, `openai_image_edit_${unique}.png`);
-        }
       }
 
       if (effectiveOutput === "file_output") {
