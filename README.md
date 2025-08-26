@@ -20,7 +20,7 @@ A Model Context Protocol (MCP) tool server for OpenAI's GPT-4o/gpt-image-1 image
 
 ## ✨ Features
 
-- **create-image**: Generate images from a prompt, with advanced options (size, quality, background, etc).
+- **create-image**: Generate images from a prompt, with advanced options (size, quality, background, etc). Supports optional reference images to guide generation.
 - **edit-image**: Edit or extend images using a prompt and optional mask, supporting both file paths and base64 input.
 - **File output**: Save generated images directly to disk, or receive as base64.
 
@@ -89,9 +89,24 @@ Also supports supplying an environment files:
 ## ⚡ Advanced
 
 - For `create-image`, set `n` to generate up to 10 images at once.
+- For `create-image`, provide a `reference_image` (absolute file path, base64 string, or data URL) to guide image generation with visual context.
 - For `edit-image`, provide a mask image (file path or base64) to control where edits are applied.
 - Provide an environment file with `--env-file path/to/file/.env`
 - See `src/index.ts` for all options.
+
+---
+
+## 🖼️ Reference Images
+
+The `create-image` tool now supports reference images to guide the generation process. You can provide a reference image in three ways:
+
+- **Absolute file path**: `/path/to/reference-image.jpg`
+- **Base64 string**: `iVBORw0KGgoAAAANSUhEUgAAAAE...`
+- **Data URL**: `data:image/jpeg;base64,/9j/4AAQSkZJRgABA...`
+
+The reference image helps the AI understand the style, composition, or content you want to achieve in the generated image. Simply include it in the `reference_image` parameter when calling the `create-image` tool.
+
+**Example**: Generate a landscape painting in the style of a reference artwork by providing both a descriptive prompt and the reference image.
 
 ---
 
