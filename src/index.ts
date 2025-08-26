@@ -55,13 +55,12 @@ const getDefaultImageDirectory = (): string => {
     fs.mkdirSync(defaultDir, { recursive: true });
   } catch (error) {
     console.warn(`Warning: Could not create default image directory at ${defaultDir}:`, error);
-    // Fallback to /tmp if directory creation fails
-    return "/tmp";
+    // Cross-platform fallback to the system temp directory
+    return os.tmpdir();
   }
   
   return defaultDir;
 };
-
 // Parse command line arguments for --env-file
 const cmdArgs = process.argv.slice(2);
 const envFileArgIndex = cmdArgs.findIndex(arg => arg === "--env-file");
