@@ -140,9 +140,10 @@ MIT
 
 - **1MB Payload Limit:** MCP clients (including Claude Desktop) have a hard 1MB limit for tool responses. Large images (especially high-res or multiple images) can easily exceed this limit if returned as base64.
 - **Auto-Switch to File Output:** If the total image size exceeds 1MB, the tool will automatically save images to disk and return the file path(s) instead of base64. This ensures compatibility and prevents errors like `result exceeds maximum length of 1048576`.
-- **Default File Location:** If you do not specify a `file_output` path, images will be saved to `/tmp` (or the directory set by the `MCP_HF_WORK_DIR` environment variable) with a unique filename.
+- **Default File Location:** If you do not specify a `file_output` path, images will be saved to `~/Desktop/Generated_Images` (or the directory set by the `MCP_HF_WORK_DIR` environment variable) with a unique filename. The default directory is automatically created if it doesn't exist.
 - **Environment Variable:**
   - `MCP_HF_WORK_DIR`: Set this to control where large images and file outputs are saved. Example: `export MCP_HF_WORK_DIR=/your/desired/dir`
+  - If not set, defaults to `~/Desktop/Generated_Images` on macOS/Linux or `%USERPROFILE%\Desktop\Generated_Images` on Windows
 - **Best Practice:** For large or production images, always use file output and ensure your client is configured to handle file paths.
 
 ---
