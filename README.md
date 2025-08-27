@@ -20,7 +20,7 @@ A Model Context Protocol (MCP) tool server for OpenAI's GPT-4o/gpt-image-1 image
 
 ## ✨ Features
 
-- **create-image**: Generate images from a prompt, with advanced options (size, quality, background, etc). Supports optional reference images to guide generation.
+- **create-image**: Generate images from a prompt, with advanced options (size, quality, background, etc).
 - **edit-image**: Edit or extend images using a prompt and optional mask, supporting both file paths and base64 input.
 - **File output**: Save generated images directly to disk, or receive as base64.
 
@@ -31,8 +31,8 @@ A Model Context Protocol (MCP) tool server for OpenAI's GPT-4o/gpt-image-1 image
 ```sh
 git clone https://github.com/SureScaleAI/openai-gpt-image-mcp.git
 cd openai-gpt-image-mcp
-yarn install
-yarn build
+bun install
+bun run build
 ```
 
 ---
@@ -89,31 +89,16 @@ Also supports supplying an environment files:
 ## ⚡ Advanced
 
 - For `create-image`, set `n` to generate up to 10 images at once.
-- For `create-image`, provide a `reference_image` (absolute file path, base64 string, or data URL) to guide image generation with visual context.
 - For `edit-image`, provide a mask image (file path or base64) to control where edits are applied.
 - Provide an environment file with `--env-file path/to/file/.env`
 - See `src/index.ts` for all options.
 
 ---
 
-## 🖼️ Reference Images
-
-The `create-image` tool now supports reference images to guide the generation process. You can provide a reference image in three ways:
-
-- **Absolute file path**: `/path/to/reference-image.jpg`
-- **Base64 string**: `iVBORw0KGgoAAAANSUhEUgAAAAE...`
-- **Data URL**: `data:image/jpeg;base64,/9j/4AAQSkZJRgABA...`
-
-The reference image helps the AI understand the style, composition, or content you want to achieve in the generated image. Simply include it in the `reference_image` parameter when calling the `create-image` tool.
-
-**Example**: Generate a landscape painting in the style of a reference artwork by providing both a descriptive prompt and the reference image.
-
----
-
 ## 🧑‍💻 Development
 
 - TypeScript source: `src/index.ts`
-- Build: `yarn build`
+- Build: `bun run build`
 - Run: `node dist/index.js`
 
 ---
@@ -140,10 +125,12 @@ MIT
 
 - **1MB Payload Limit:** MCP clients (including Claude Desktop) have a hard 1MB limit for tool responses. Large images (especially high-res or multiple images) can easily exceed this limit if returned as base64.
 - **Auto-Switch to File Output:** If the total image size exceeds 1MB, the tool will automatically save images to disk and return the file path(s) instead of base64. This ensures compatibility and prevents errors like `result exceeds maximum length of 1048576`.
-- **Default File Location:** If you do not specify a `file_output` path, images will be saved to `~/Desktop/Generated_Images` (or the directory set by the `MCP_HF_WORK_DIR` environment variable) with a unique filename. The default directory is automatically created if it doesn't exist.
+- **Default File Location:** If you do not specify a `file_output` path, images will be saved to a platform-specific default directory:
+  - **Windows:** `%USERPROFILE%\Desktop\Generated_Images`
+  - **macOS/Linux:** `~/Desktop/Generated_Images`
+  - The default directory is automatically created if it doesn't exist.
 - **Environment Variable:**
-  - `MCP_HF_WORK_DIR`: Set this to control where large images and file outputs are saved. Example: `export MCP_HF_WORK_DIR=/your/desired/dir`
-  - If not set, defaults to `~/Desktop/Generated_Images` on macOS/Linux or `%USERPROFILE%\Desktop\Generated_Images` on Windows
+  - `MCP_HF_WORK_DIR`: Set this to override the default image output directory. Example: `export MCP_HF_WORK_DIR=/your/desired/dir`
 - **Best Practice:** For large or production images, always use file output and ensure your client is configured to handle file paths.
 
 ---
