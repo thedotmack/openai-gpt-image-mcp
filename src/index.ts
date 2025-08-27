@@ -26,9 +26,9 @@ const loadEnvFile = (filePath: string) => {
         }
       }
     });
-    console.log(`Loaded environment variables from ${filePath}`);
+    console.error(`Loaded environment variables from ${filePath}`);
   } catch (error) {
-    console.warn(`Warning: Could not read environment file at ${filePath}:`, error);
+    console.error(`Warning: Could not read environment file at ${filePath}:`, error);
   }
 };
 
@@ -54,7 +54,7 @@ const getDefaultImageDirectory = (): string => {
   try {
     fs.mkdirSync(defaultDir, { recursive: true });
   } catch (error) {
-    console.warn(`Warning: Could not create default image directory at ${defaultDir}:`, error);
+    console.error(`Warning: Could not create default image directory at ${defaultDir}:`, error);
     // Cross-platform fallback to the system temp directory
     return os.tmpdir();
   }
@@ -65,11 +65,11 @@ const getDefaultImageDirectory = (): string => {
 const cmdArgs = process.argv.slice(2);
 const envFileArgIndex = cmdArgs.findIndex(arg => arg === "--env-file");
 if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
-  console.log("Loading environment variables from file:", cmdArgs[envFileArgIndex + 1]);
+  console.error("Loading environment variables from file:", cmdArgs[envFileArgIndex + 1]);
   const envFilePath = cmdArgs[envFileArgIndex + 1];
   loadEnvFile(envFilePath);
 } else {
-  console.log("No environment file provided");
+  console.error("No environment file provided");
 }
 
 (async () => {
@@ -286,10 +286,11 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
           try {
             fs.mkdirSync(tmpDir, { recursive: true });
           } catch (e) {
-            console.warn(`Warning: Could not create image output directory at ${tmpDir}:`, e);
+            console.error(`Warning: Could not create image output directory at ${tmpDir}:`, e);
           }
           const unique = Date.now();
           effectiveFileOutput = path.join(tmpDir, `openai_image_${unique}.${base64Images[0]?.ext ?? "png"}`);
+        }
       }
 
       if (effectiveOutput === "file_output") {
@@ -540,10 +541,11 @@ if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
           try {
             fs.mkdirSync(tmpDir, { recursive: true });
           } catch (e) {
-            console.warn(`Warning: Could not create image output directory at ${tmpDir}:`, e);
+            console.error(`Warning: Could not create image output directory at ${tmpDir}:`, e);
           }
           const unique = Date.now();
           effectiveFileOutput = path.join(tmpDir, `openai_image_edit_${unique}.png`);
+        }
       }
 
       if (effectiveOutput === "file_output") {

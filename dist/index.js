@@ -62,10 +62,10 @@ const loadEnvFile = (filePath) => {
                 }
             }
         });
-        console.log(`Loaded environment variables from ${filePath}`);
+        console.error(`Loaded environment variables from ${filePath}`);
     }
     catch (error) {
-        console.warn(`Warning: Could not read environment file at ${filePath}:`, error);
+        console.error(`Warning: Could not read environment file at ${filePath}:`, error);
     }
 };
 // Function to get platform-specific default image directory
@@ -89,7 +89,7 @@ const getDefaultImageDirectory = () => {
         fs_1.default.mkdirSync(defaultDir, { recursive: true });
     }
     catch (error) {
-        console.warn(`Warning: Could not create default image directory at ${defaultDir}:`, error);
+        console.error(`Warning: Could not create default image directory at ${defaultDir}:`, error);
         // Cross-platform fallback to the system temp directory
         return os_1.default.tmpdir();
     }
@@ -99,12 +99,12 @@ const getDefaultImageDirectory = () => {
 const cmdArgs = process.argv.slice(2);
 const envFileArgIndex = cmdArgs.findIndex(arg => arg === "--env-file");
 if (envFileArgIndex !== -1 && cmdArgs[envFileArgIndex + 1]) {
-    console.log("Loading environment variables from file:", cmdArgs[envFileArgIndex + 1]);
+    console.error("Loading environment variables from file:", cmdArgs[envFileArgIndex + 1]);
     const envFilePath = cmdArgs[envFileArgIndex + 1];
     loadEnvFile(envFilePath);
 }
 else {
-    console.log("No environment file provided");
+    console.error("No environment file provided");
 }
 (async () => {
     const server = new mcp_js_1.McpServer({
@@ -321,44 +321,44 @@ else {
                     fs_1.default.mkdirSync(tmpDir, { recursive: true });
                 }
                 catch (e) {
-                    console.warn(`Warning: Could not create image output directory at ${tmpDir}:`, e);
+                    console.error(`Warning: Could not create image output directory at ${tmpDir}:`, e);
                 }
                 const unique = Date.now();
                 effectiveFileOutput = path_1.default.join(tmpDir, `openai_image_${unique}.${base64Images[0]?.ext ?? "png"}`);
             }
-            if (effectiveOutput === "file_output") {
-                const fs = await Promise.resolve().then(() => __importStar(require("fs/promises")));
-                const path = await Promise.resolve().then(() => __importStar(require("path")));
-                // If multiple images, append index to filename
-                const basePath = effectiveFileOutput;
-                const responses = [];
-                for (let i = 0; i < base64Images.length; i++) {
-                    const img = base64Images[i];
-                    let filePath = basePath;
-                    if (base64Images.length > 1) {
-                        const parsed = path.parse(basePath);
-                        filePath = path.join(parsed.dir, `${parsed.name}_${i + 1}.${img.ext ?? "png"}`);
-                    }
-                    else {
-                        // Ensure correct extension
-                        const parsed = path.parse(basePath);
-                        filePath = path.join(parsed.dir, `${parsed.name}.${img.ext ?? "png"}`);
-                    }
-                    await fs.writeFile(filePath, Buffer.from(img.b64, "base64"));
-                    responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
+        }
+        if (effectiveOutput === "file_output") {
+            const fs = await Promise.resolve().then(() => __importStar(require("fs/promises")));
+            const path = await Promise.resolve().then(() => __importStar(require("path")));
+            // If multiple images, append index to filename
+            const basePath = effectiveFileOutput;
+            const responses = [];
+            for (let i = 0; i < base64Images.length; i++) {
+                const img = base64Images[i];
+                let filePath = basePath;
+                if (base64Images.length > 1) {
+                    const parsed = path.parse(basePath);
+                    filePath = path.join(parsed.dir, `${parsed.name}_${i + 1}.${img.ext ?? "png"}`);
                 }
-                return { content: responses };
+                else {
+                    // Ensure correct extension
+                    const parsed = path.parse(basePath);
+                    filePath = path.join(parsed.dir, `${parsed.name}.${img.ext ?? "png"}`);
+                }
+                await fs.writeFile(filePath, Buffer.from(img.b64, "base64"));
+                responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
             }
-            else {
-                // Default: base64
-                return {
-                    content: base64Images.map((img) => ({
-                        type: "image",
-                        data: img.b64,
-                        mimeType: img.mimeType,
-                    })),
-                };
-            }
+            return { content: responses };
+        }
+        else {
+            // Default: base64
+            return {
+                content: base64Images.map((img) => ({
+                    type: "image",
+                    data: img.b64,
+                    mimeType: img.mimeType,
+                })),
+            };
         }
     });
     // Image input schema for reuse
@@ -555,49 +555,49 @@ else {
                     fs_1.default.mkdirSync(tmpDir, { recursive: true });
                 }
                 catch (e) {
-                    console.warn(`Warning: Could not create image output directory at ${tmpDir}:`, e);
+                    console.error(`Warning: Could not create image output directory at ${tmpDir}:`, e);
                 }
                 const unique = Date.now();
                 effectiveFileOutput = path_1.default.join(tmpDir, `openai_image_edit_${unique}.png`);
             }
-            if (effectiveOutput === "file_output") {
-                if (!effectiveFileOutput) {
-                    throw new Error("file_output path is required when output is 'file_output'");
-                }
-                // Use fs/promises and path (already imported)
-                const basePath = effectiveFileOutput;
-                const responses = [];
-                for (let i = 0; i < base64Images.length; i++) {
-                    const img = base64Images[i];
-                    let filePath = basePath;
-                    if (base64Images.length > 1) {
-                        const parsed = path_1.default.parse(basePath);
-                        // Append index before the original extension if it exists, otherwise just append index and .png
-                        const ext = parsed.ext || `.${img.ext}`;
-                        filePath = path_1.default.join(parsed.dir, `${parsed.name}_${i + 1}${ext}`);
-                    }
-                    else {
-                        // Ensure the extension from the path is used, or default to .png
-                        const parsed = path_1.default.parse(basePath);
-                        const ext = parsed.ext || `.${img.ext}`;
-                        filePath = path_1.default.join(parsed.dir, `${parsed.name}${ext}`);
-                    }
-                    await fs_1.default.promises.writeFile(filePath, Buffer.from(img.b64, "base64"));
-                    // Workaround: Return file path as text
-                    responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
-                }
-                return { content: responses };
+        }
+        if (effectiveOutput === "file_output") {
+            if (!effectiveFileOutput) {
+                throw new Error("file_output path is required when output is 'file_output'");
             }
-            else {
-                // Default: base64
-                return {
-                    content: base64Images.map((img) => ({
-                        type: "image",
-                        data: img.b64,
-                        mimeType: img.mimeType, // Should be image/png
-                    })),
-                };
+            // Use fs/promises and path (already imported)
+            const basePath = effectiveFileOutput;
+            const responses = [];
+            for (let i = 0; i < base64Images.length; i++) {
+                const img = base64Images[i];
+                let filePath = basePath;
+                if (base64Images.length > 1) {
+                    const parsed = path_1.default.parse(basePath);
+                    // Append index before the original extension if it exists, otherwise just append index and .png
+                    const ext = parsed.ext || `.${img.ext}`;
+                    filePath = path_1.default.join(parsed.dir, `${parsed.name}_${i + 1}${ext}`);
+                }
+                else {
+                    // Ensure the extension from the path is used, or default to .png
+                    const parsed = path_1.default.parse(basePath);
+                    const ext = parsed.ext || `.${img.ext}`;
+                    filePath = path_1.default.join(parsed.dir, `${parsed.name}${ext}`);
+                }
+                await fs_1.default.promises.writeFile(filePath, Buffer.from(img.b64, "base64"));
+                // Workaround: Return file path as text
+                responses.push({ type: "text", text: `Image saved to: file://${filePath}` });
             }
+            return { content: responses };
+        }
+        else {
+            // Default: base64
+            return {
+                content: base64Images.map((img) => ({
+                    type: "image",
+                    data: img.b64,
+                    mimeType: img.mimeType, // Should be image/png
+                })),
+            };
         }
     });
     const transport = new stdio_js_1.StdioServerTransport();
